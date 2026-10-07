@@ -1,0 +1,1701 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BESS SLD Studio - 蓄電池単線結線図自動生成ツール</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        tech: {
+                            50: '#f4f6f9',
+                            100: '#e5e9f0',
+                            200: '#cdd5e1',
+                            700: '#334155',
+                            800: '#1e293b',
+                            900: '#0f172a',
+                            accent: '#2563eb',
+                            power: '#0284c7',
+                            comm: '#059669',
+                            safety: '#dc2626'
+                        }
+                    },
+                    fontFamily: {
+                        mono: ['JetBrains Mono', 'Courier New', 'monospace'],
+                        sans: ['Inter', 'Hiragino Kaku Gothic ProN', 'Meiryo', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .svg-canvas-bg {
+            background-color: #fafbfc;
+            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        .sld-element {
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .sld-element:hover {
+            filter: drop-shadow(0 0 6px rgba(37, 99, 235, 0.4));
+        }
+        .sld-element.selected rect, .sld-element.selected circle, .sld-element.selected path {
+            stroke: #2563eb !important;
+            stroke-width: 2.5px !important;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        @media print {
+            .no-print { display: none !important; }
+            .print-full { width: 100% !important; height: 100% !important; }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans h-screen flex flex-col overflow-hidden">
+
+    <header class="bg-slate-900 text-white px-4 py-2.5 flex items-center justify-between shadow-md z-10 border-b border-slate-800 no-print flex-wrap gap-2">
+        <div class="flex items-center space-x-3">
+            <div class="bg-blue-600 p-1.5 rounded text-white font-bold tracking-wider text-xs">BESS</div>
+            <h1 class="text-lg font-bold tracking-tight flex items-center gap-2">
+                SLD Studio
+                <span class="text-xs font-normal text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">v1.1 Pro</span>
+            </h1>
+        </div>
+
+        <!-- Language Selector & View Mode Selector Tabs -->
+        <div class="flex items-center space-x-3">
+            <!-- Language Dropdown -->
+            <div class="flex items-center bg-slate-800 px-2 py-1 rounded border border-slate-700">
+                <span class="text-xs text-slate-400 mr-1.5 font-medium">🌐</span>
+                <select id="lang-selector" onchange="changeLanguage(this.value)" class="bg-transparent text-xs text-white outline-none cursor-pointer font-medium">
+                    <option value="ja" selected class="bg-slate-800 text-white">日本語</option>
+                    <option value="en" class="bg-slate-800 text-white">English</option>
+                    <option value="zh" class="bg-slate-800 text-white">中文 (简体)</option>
+                </select>
+            </div>
+
+            <!-- View Mode Selector Tabs -->
+            <div class="flex items-center bg-slate-800 p-1 rounded-lg border border-slate-700">
+                <button id="btn-mode-power" onclick="setViewMode('power')" class="px-3 py-1 text-xs font-medium rounded-md transition-colors bg-blue-600 text-white shadow" data-i18n="mode_power">電力系統図</button>
+                <button id="btn-mode-comm" onclick="setViewMode('comm')" class="px-3 py-1 text-xs font-medium rounded-md transition-colors text-slate-300 hover:text-white" data-i18n="mode_comm">制御・通信系統</button>
+                <button id="btn-mode-safety" onclick="setViewMode('safety')" class="px-3 py-1 text-xs font-medium rounded-md transition-colors text-slate-300 hover:text-white" data-i18n="mode_safety">安全・防災系統</button>
+                <button id="btn-mode-full" onclick="setViewMode('full')" class="px-3 py-1 text-xs font-medium rounded-md transition-colors text-slate-300 hover:text-white" data-i18n="mode_full">全体系統図</button>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex items-center space-x-2">
+            <button onclick="resetDefaults()" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1.5 rounded flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.035 8.035 0 01-15.357-2m15.357 2H15"></path></svg>
+                <span data-i18n="btn_reset">初期化</span>
+            </button>
+            <button onclick="exportJSON()" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1.5 rounded flex items-center gap-1">
+                <span data-i18n="btn_save_json">JSON保存</span>
+            </button>
+            <label class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1.5 rounded flex items-center gap-1 cursor-pointer">
+                <span data-i18n="btn_load_json">JSON読込</span>
+                <input type="file" id="load-json-input" accept=".json" class="hidden" onchange="importJSON(event)">
+            </label>
+            <div class="h-4 w-px bg-slate-700 mx-1"></div>
+            <button onclick="exportSVG()" class="text-xs bg-blue-700 hover:bg-blue-600 text-white font-medium px-3 py-1.5 rounded flex items-center gap-1 shadow-sm">
+                SVG
+            </button>
+            <button onclick="exportPNG()" class="text-xs bg-emerald-700 hover:bg-emerald-600 text-white font-medium px-3 py-1.5 rounded flex items-center gap-1 shadow-sm">
+                PNG
+            </button>
+            <button onclick="window.print()" class="text-xs bg-slate-700 hover:bg-slate-600 text-white font-medium px-3 py-1.5 rounded flex items-center gap-1">
+                <span data-i18n="btn_print">印刷</span>
+            </button>
+        </div>
+    </header>
+
+    <div class="flex-1 flex overflow-hidden">
+
+        <!-- Left Panel: Parameter Controls -->
+        <aside class="w-80 lg:w-96 bg-white border-r border-slate-200 flex flex-col h-full overflow-hidden shrink-0 no-print shadow-sm">
+            <div class="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                <span class="font-bold text-xs uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                    <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+                    <span data-i18n="title_sys_params">システム構成パラメタ</span>
+                </span>
+                <button onclick="triggerSLDUpdate()" class="text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold px-2.5 py-1 rounded shadow-sm transition" data-i18n="btn_generate">
+                    結線図生成
+                </button>
+            </div>
+
+            <!-- Form accordion menu -->
+            <div class="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+
+                <!-- 1. Battery System -->
+                <div class="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-2xs">
+                    <div class="bg-slate-100 px-3 py-2 font-semibold text-slate-800 border-b border-slate-200 flex justify-between items-center">
+                        <span data-i18n="sec_battery">1. 蓄電池系統 (Battery System)</span>
+                        <span id="badge-total-mwh" class="text-[10px] bg-blue-100 text-blue-800 font-mono px-1.5 py-0.5 rounded">1.50 MWh</span>
+                    </div>
+                    <div class="p-3 grid grid-cols-2 gap-2.5">
+                        <div>
+                            <label class="text-slate-500 block mb-1" data-i18n="lbl_target_mwh">目標容量 (MWh)</label>
+                            <input type="number" step="0.1" id="cfg-battery-energy" value="1.5" class="w-full border border-slate-300 rounded px-2 py-1 font-mono focus:border-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="text-slate-500 block mb-1" data-i18n="lbl_rack_qty">Rack 数量</label>
+                            <input type="number" id="cfg-rack-qty" value="4" min="1" max="16" class="w-full border border-slate-300 rounded px-2 py-1 font-mono focus:border-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="text-slate-500 block mb-1" data-i18n="lbl_dc_vmin">DC 最低電圧 (V)</label>
+                            <input type="number" id="cfg-dc-vmin" value="1000" class="w-full border border-slate-300 rounded px-2 py-1 font-mono outline-none">
+                        </div>
+                        <div>
+                            <label class="text-slate-500 block mb-1" data-i18n="lbl_dc_vmax">DC 最高電圧 (V)</label>
+                            <input type="number" id="cfg-dc-vmax" value="1500" class="w-full border border-slate-300 rounded px-2 py-1 font-mono outline-none">
+                        </div>
+                        <div>
+                            <label class="text-slate-500 block mb-1" data-i18n="lbl_cell_ah">Cell 容量 (Ah)</label>
+                            <input type="number" id="cfg-cell-ah" value="314" class="w-full border border-slate-300 rounded px-2 py-1 font-mono outline-none">
+                        </div>
+                        <div>
+                            <label class="text-slate-500 block mb-1" data-i18n="lbl_cell_series">直列Cell数 (S)</label>
+                            <input type="number" id="cfg-cell-series" value="52" class="w-full border border-slate-300 rounded px-2 py-1 font-mono outline-none">
+                        </div>
+                        <div>
+                            <label class="text-slate-500 block mb-1" data-i18n="lbl_packs_per_rack">Pack / Rack</label>
+                            <input type="number" id="cfg-packs-per-rack" value="8" class="w-full border border-slate-300 rounded px-2 py-1 font-mono outline-none">
+                        </div>
+                        <div>
+                            <label class="text-slate-500 block mb-1" data-i18n="lbl_container_qty">コンテナ数量</label>
+                            <input type="number" id="cfg-container-qty" value="1" class="w-full border border-slate-300 rounded px-2 py-1 font-mono outline-none">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. DC System -->
+                <div class="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-2xs">
+                    <div class="bg-slate-100 px-3 py-2 font-semibold text-slate-800 border-b border-slate-200" data-i18n="sec_dc">2. DC保護・集電系統 (DC System)</div>
+                    <div class="p-3 space-y-2">
+                        <div class="grid grid-cols-2 gap-2">
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" id="cfg-dc-combiner" checked class="rounded text-blue-600 focus:ring-0">
+                                <span data-i18n="opt_dc_combiner">DC Combiner</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" id="cfg-dc-disconnect" checked class="rounded text-blue-600 focus:ring-0">
+                                <span data-i18n="opt_dc_disconnect">DC Disconnect</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" id="cfg-dc-fuse" checked class="rounded text-blue-600 focus:ring-0">
+                                <span data-i18n="opt_dc_fuse">DC Fuse</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" id="cfg-dc-breaker" checked class="rounded text-blue-600 focus:ring-0">
+                                <span data-i18n="opt_dc_breaker">DC Breaker</span>
+                            </label>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100">
+                            <div>
+                                <label class="text-slate-500 block mb-0.5" data-i18n="lbl_combiner_qty">Combiner 数量</label>
+                                <input type="number" id="cfg-dc-combiner-qty" value="1" min="1" class="w-full border border-slate-300 rounded px-2 py-1 font-mono">
+                            </div>
+                            <div>
+                                <label class="text-slate-500 block mb-0.5" data-i18n="lbl_rack_topo">接続トポロジ</label>
+                                <select id="cfg-rack-topology" class="w-full border border-slate-300 rounded px-1.5 py-1 bg-white">
+                                    <option value="parallel" data-i18n="topo_parallel">並列バス方式</option>
+                                    <option value="direct" data-i18n="topo_direct">PCS直接方式</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. PCS System -->
+                <div class="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-2xs">
+                    <div class="bg-slate-100 px-3 py-2 font-semibold text-slate-800 border-b border-slate-200 flex justify-between items-center">
+                        <span data-i18n="sec_pcs">3. パワーコンディショナ (PCS)</span>
+                        <span id="badge-total-pcs-mw" class="text-[10px] bg-emerald-100 text-emerald-800 font-mono px-1.5 py-0.5 rounded">2.00 MW</span>
+                    </div>
+                    <div class="p-3 grid grid-cols-2 gap-2.5">
+                        <div>
+                            <label class="text-slate-500 block mb-1" data-i18n="lbl_pcs_qty">PCS 数量</label>
+                            <input type="number" id="cfg-pcs-qty" value="4" min="1" max="12" class="w-full border border-slate-300 rounded px-2 py-1 font-mono">
+                        </div>
+                        <div>
+                            <label class="text-slate-500 block mb-1" data-i18n="lbl_pcs_kw">単機定格 (kW)</label>
+                            <input type="number" id="cfg-pcs-kw" value="500" class="w-full border border-slate-300 rounded px-2 py-1 font-mono">
+                        </div>
+                        <div>
+                            <label class="text-slate-500 block mb-1" data-i18n="lbl_pcs_vdc">DC 入力電圧 (V)</label>
+                            <input type="number" id="cfg-pcs-v-dc" value="1250" class="w-full border border-slate-300 rounded px-2 py-1 font-mono">
+                        </div>
+                        <div>
+                            <label class="text-slate-500 block mb-1" data-i18n="lbl_pcs_vac">AC 出力電圧 (V)</label>
+                            <input type="number" id="cfg-pcs-v-ac" value="690" class="w-full border border-slate-300 rounded px-2 py-1 font-mono">
+                        </div>
+                        <div>
+                            <label class="text-slate-500 block mb-1" data-i18n="lbl_pcs_pf">力率 (Power Factor)</label>
+                            <input type="number" step="0.01" id="cfg-pcs-pf" value="0.99" class="w-full border border-slate-300 rounded px-2 py-1 font-mono">
+                        </div>
+                        <div>
+                            <label class="text-slate-500 block mb-1" data-i18n="lbl_pcs_mode">PCS構成方式</label>
+                            <select id="cfg-pcs-mode" class="w-full border border-slate-300 rounded px-1 py-1 bg-white">
+                                <option value="multi" data-i18n="pcs_mode_multi">分散分散PCS</option>
+                                <option value="central" data-i18n="pcs_mode_central">集中型PCS</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. AC System & Transformer -->
+                <div class="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-2xs">
+                    <div class="bg-slate-100 px-3 py-2 font-semibold text-slate-800 border-b border-slate-200" data-i18n="sec_ac_tx">4. AC低圧系統・変圧器 (AC / Transformer)</div>
+                    <div class="p-3 space-y-2.5">
+                        <div class="grid grid-cols-2 gap-2">
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" id="cfg-ac-panel" checked class="rounded text-blue-600 focus:ring-0">
+                                <span data-i18n="opt_ac_panel">AC Panel / Bus</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" id="cfg-ac-breaker" checked class="rounded text-blue-600 focus:ring-0">
+                                <span data-i18n="opt_ac_breaker">AC Breaker</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" id="cfg-transformer-toggle" checked class="rounded text-blue-600 focus:ring-0">
+                                <span data-i18n="opt_transformer">変圧器 (Transformer)</span>
+                            </label>
+                            <div class="flex items-center space-x-1">
+                                <span class="text-slate-500" data-i18n="lbl_freq">周波数:</span>
+                                <select id="cfg-frequency" class="border border-slate-300 rounded px-1 py-0.5 bg-white">
+                                    <option value="50">50 Hz</option>
+                                    <option value="60">60 Hz</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                            <div>
+                                <label class="text-slate-500 block mb-0.5" data-i18n="lbl_tx_kva">変圧器容量 (kVA)</label>
+                                <input type="number" id="cfg-tx-kva" value="2500" class="w-full border border-slate-300 rounded px-2 py-1 font-mono">
+                            </div>
+                            <div>
+                                <label class="text-slate-500 block mb-0.5" data-i18n="lbl_tx_qty">変圧器台数</label>
+                                <input type="number" id="cfg-tx-qty" value="1" min="1" class="w-full border border-slate-300 rounded px-2 py-1 font-mono">
+                            </div>
+                            <div>
+                                <label class="text-slate-500 block mb-0.5" data-i18n="lbl_tx_primary">一次電圧 (kV)</label>
+                                <input type="number" step="0.1" id="cfg-tx-primary-kv" value="6.6" class="w-full border border-slate-300 rounded px-2 py-1 font-mono">
+                            </div>
+                            <div>
+                                <label class="text-slate-500 block mb-0.5" data-i18n="lbl_tx_secondary">二次電圧 (V)</label>
+                                <input type="number" id="cfg-tx-secondary-v" value="690" class="w-full border border-slate-300 rounded px-2 py-1 font-mono">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5. Grid / MV System -->
+                <div class="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-2xs">
+                    <div class="bg-slate-100 px-3 py-2 font-semibold text-slate-800 border-b border-slate-200" data-i18n="sec_mv_grid">5. 高圧受電設備・系統連系 (MV & Grid)</div>
+                    <div class="p-3 space-y-2">
+                        <div class="grid grid-cols-2 gap-2">
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" id="cfg-mv-switchgear" checked class="rounded text-blue-600 focus:ring-0">
+                                <span data-i18n="opt_mv_switchgear">MV Switchgear</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" id="cfg-grid-breaker" checked class="rounded text-blue-600 focus:ring-0">
+                                <span data-i18n="opt_grid_breaker">Grid Breaker</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" id="cfg-ct" checked class="rounded text-blue-600 focus:ring-0">
+                                <span data-i18n="opt_ct">変流器 (CT)</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" id="cfg-vt" checked class="rounded text-blue-600 focus:ring-0">
+                                <span data-i18n="opt_vt">変圧器 (VT/PT)</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" id="cfg-relay" checked class="rounded text-blue-600 focus:ring-0">
+                                <span data-i18n="opt_relay">保護継電器</span>
+                            </label>
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" id="cfg-meter" checked class="rounded text-blue-600 focus:ring-0">
+                                <span data-i18n="opt_meter">取引用電力量計</span>
+                            </label>
+                        </div>
+                        <div class="pt-2 border-t border-slate-100">
+                            <label class="text-slate-500 block mb-1" data-i18n="lbl_grid_kv">系統電圧 (kV)</label>
+                            <input type="number" step="0.1" id="cfg-grid-voltage" value="6.6" class="w-full border border-slate-300 rounded px-2 py-1 font-mono">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 6. BMS / EMS / Safety -->
+                <div class="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-2xs">
+                    <div class="bg-slate-100 px-3 py-2 font-semibold text-slate-800 border-b border-slate-200" data-i18n="sec_aux">6. 制御・BMS・防災補助設備</div>
+                    <div class="p-3 space-y-2">
+                        <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide" data-i18n="sec_sub_comm">通信・制御層</div>
+                        <div class="grid grid-cols-2 gap-1.5">
+                            <label class="flex items-center space-x-2"><input type="checkbox" id="cfg-bms-rack" checked><span data-i18n="opt_bms_rack">Rack BMS</span></label>
+                            <label class="flex items-center space-x-2"><input type="checkbox" id="cfg-bms-master" checked><span data-i18n="opt_bms_master">Master BMS</span></label>
+                            <label class="flex items-center space-x-2"><input type="checkbox" id="cfg-ems" checked><span data-i18n="opt_ems">EMS</span></label>
+                            <label class="flex items-center space-x-2"><input type="checkbox" id="cfg-scada" checked><span data-i18n="opt_scada">SCADA / クラウド</span></label>
+                        </div>
+                        <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide pt-2 border-t border-slate-100" data-i18n="sec_sub_safety">安全・防災機能</div>
+                        <div class="grid grid-cols-2 gap-1.5">
+                            <label class="flex items-center space-x-2"><input type="checkbox" id="cfg-estop" checked><span data-i18n="opt_estop">非常停止回路</span></label>
+                            <label class="flex items-center space-x-2"><input type="checkbox" id="cfg-fire" checked><span data-i18n="opt_fire">火災感知・消火</span></label>
+                            <label class="flex items-center space-x-2"><input type="checkbox" id="cfg-hvac" checked><span data-i18n="opt_hvac">HVAC 空調</span></label>
+                            <label class="flex items-center space-x-2"><input type="checkbox" id="cfg-spd" checked><span data-i18n="opt_spd">SPD 避雷器</span></label>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </aside>
+
+        <!-- Center Canvas Panel -->
+        <main class="flex-1 flex flex-col h-full bg-slate-200 relative overflow-hidden">
+
+            <div class="absolute top-3 left-3 z-10 flex items-center space-x-2 bg-white/90 backdrop-blur border border-slate-300 rounded-lg p-1.5 shadow-sm no-print">
+                <button onclick="zoomCanvas(1.15)" class="p-1.5 hover:bg-slate-100 rounded text-slate-700" title="Zoom In">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7"></path></svg>
+                </button>
+                <button onclick="zoomCanvas(0.85)" class="p-1.5 hover:bg-slate-100 rounded text-slate-700" title="Zoom Out">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7"></path></svg>
+                </button>
+                <button onclick="resetZoom()" class="p-1.5 hover:bg-slate-100 rounded text-slate-700" title="Fit View">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path></svg>
+                </button>
+                <div class="h-4 w-px bg-slate-300"></div>
+                <span id="diagram-title-badge" class="text-xs font-mono font-semibold px-2 text-slate-600" data-i18n="badge_title_power">電力系統単線結線図</span>
+            </div>
+
+            <div class="absolute bottom-3 left-3 z-10 bg-white/90 backdrop-blur border border-slate-300 rounded-lg p-2.5 shadow-sm text-[11px] space-y-1 no-print">
+                <div class="font-bold text-slate-700 border-b border-slate-200 pb-0.5 mb-1" data-i18n="legend_title">凡例 (Legend)</div>
+                <div class="flex items-center space-x-2">
+                    <div class="w-5 h-0.5 bg-slate-900"></div>
+                    <span class="text-slate-600" data-i18n="legend_power">電力動力線 (Power Line)</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <div class="w-5 h-0.5 border-t border-dashed border-emerald-600"></div>
+                    <span class="text-slate-600" data-i18n="legend_comm">通信制御線 (Communication)</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <div class="w-5 h-0.5 border-t border-dotted border-red-500"></div>
+                    <span class="text-slate-600" data-i18n="legend_safety">信号・防災線 (Safety / Aux)</span>
+                </div>
+            </div>
+
+            <div id="svg-viewport" class="flex-1 w-full h-full svg-canvas-bg overflow-hidden cursor-grab active:cursor-grabbing flex items-center justify-center">
+                <svg id="main-sld-svg" class="w-full h-full min-w-[1000px] min-h-[600px]" xmlns="http://www.w3.org/2000/svg">
+                    <g id="svg-transform-group">
+                        <!-- Dynamic SVG Elements Render Here -->
+                    </g>
+                </svg>
+            </div>
+        </main>
+
+        <!-- Right Panel: Equipment Inspection & Analytics -->
+        <aside class="w-80 lg:w-96 bg-white border-l border-slate-200 flex flex-col h-full overflow-hidden shrink-0 no-print shadow-sm">
+
+            <div class="p-3 bg-slate-50 border-b border-slate-200 font-bold text-xs uppercase tracking-wider text-slate-600 flex items-center justify-between">
+                <span class="flex items-center gap-1.5">
+                    <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <span data-i18n="title_inspector">機器詳細情報</span>
+                </span>
+                <span id="selected-type-tag" class="bg-slate-200 text-slate-700 font-mono text-[10px] px-2 py-0.5 rounded" data-i18n="tag_select_element">機器未選択</span>
+            </div>
+
+            <div class="p-4 border-b border-slate-200 bg-white">
+                <div id="inspector-content" class="space-y-2">
+                    <div class="text-center py-6 text-slate-400">
+                        <svg class="w-8 h-8 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path></svg>
+                        <p class="text-xs" data-i18n="inspector_empty">結線図上のシンボルをクリックすると仕様の詳細が表示されます。</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-3 bg-slate-50 border-b border-slate-200 font-bold text-xs uppercase tracking-wider text-slate-600 flex items-center justify-between">
+                <span class="flex items-center gap-1.5">
+                    <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <span data-i18n="title_design_check">概略設計判定 (Conceptual Check)</span>
+                </span>
+                <span class="text-[9px] text-slate-400 font-normal italic" data-i18n="check_preliminary">簡易判定</span>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-4 space-y-3 text-xs">
+                <div id="design-checks-container" class="space-y-2">
+                    <!-- Warnings Container -->
+                </div>
+
+                <div class="border border-slate-200 rounded-lg p-3 bg-slate-50/50 space-y-2 mt-4">
+                    <div class="font-semibold text-slate-800 border-b border-slate-200 pb-1 flex justify-between">
+                        <span data-i18n="summary_header">システムサマリー</span>
+                        <span class="font-mono text-[10px] text-blue-600">BESS Topology</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-y-2 gap-x-1 font-mono text-[11px]">
+                        <div>
+                            <span class="text-slate-500 text-[10px] block" data-i18n="sum_lbl_energy">蓄電容量</span>
+                            <span id="sum-energy" class="font-bold text-slate-800">1.50 MWh</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[10px] block" data-i18n="sum_lbl_pcs">PCS出力</span>
+                            <span id="sum-pcs-mw" class="font-bold text-slate-800">2.00 MW</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[10px] block" data-i18n="sum_lbl_tx">変圧器容量</span>
+                            <span id="sum-tx-mva" class="font-bold text-slate-800">2.50 MVA</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[10px] block" data-i18n="sum_lbl_ratio">蓄電時間比率</span>
+                            <span id="sum-ratio" class="font-bold text-slate-800">0.75 h</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[10px] block" data-i18n="sum_lbl_crate">想定 C-Rate</span>
+                            <span id="sum-crate" class="font-bold text-slate-800">1.33 C</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500 text-[10px] block" data-i18n="sum_lbl_grid">連系電圧</span>
+                            <span id="sum-grid-kv" class="font-bold text-slate-800">6.6 kV</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="text-[10px] text-slate-400 leading-tight bg-amber-50 border border-amber-200 p-2 rounded text-amber-800" data-i18n="disclaimer_note">
+                    <strong>注記:</strong> 概略設計判定は初期検討・比較用です。最終設計時は短絡電流計算、高調波解析、保護協調検討を実施してください。
+                </div>
+            </div>
+        </aside>
+
+    </div>
+
+    <script>
+        /**
+         * BESS SLD Studio i18n Engine & Dictionary Table
+         */
+        let currentLang = 'ja';
+
+        const i18nDict = {
+            ja: {
+                // Header & Controls
+                mode_power: "電力系統図",
+                mode_comm: "制御・通信系統",
+                mode_safety: "安全・防災系統",
+                mode_full: "全体系統図",
+                btn_reset: "初期化",
+                btn_save_json: "JSON保存",
+                btn_load_json: "JSON読込",
+                btn_print: "印刷",
+                title_sys_params: "システム構成パラメタ",
+                btn_generate: "結線図生成",
+
+                // Section Headers
+                sec_battery: "1. 蓄電池系統 (Battery System)",
+                sec_dc: "2. DC保護・集電系統 (DC System)",
+                sec_pcs: "3. パワーコンディショナ (PCS)",
+                sec_ac_tx: "4. AC低圧系統・変圧器 (AC / Transformer)",
+                sec_mv_grid: "5. 高圧受電設備・系統連系 (MV & Grid)",
+                sec_aux: "6. 制御・BMS・防災補助設備",
+                sec_sub_comm: "通信・制御層",
+                sec_sub_safety: "安全・防災機能",
+
+                // Input Labels
+                lbl_target_mwh: "目標容量 (MWh)",
+                lbl_rack_qty: "Rack 数量",
+                lbl_dc_vmin: "DC 最低電圧 (V)",
+                lbl_dc_vmax: "DC 最高電圧 (V)",
+                lbl_cell_ah: "Cell 容量 (Ah)",
+                lbl_cell_series: "直列Cell数 (S)",
+                lbl_packs_per_rack: "Pack / Rack",
+                lbl_container_qty: "コンテナ数量",
+
+                opt_dc_combiner: "DC Combiner",
+                opt_dc_disconnect: "DC Disconnect",
+                opt_dc_fuse: "DC Fuse",
+                opt_dc_breaker: "DC Breaker",
+                lbl_combiner_qty: "Combiner 数量",
+                lbl_rack_topo: "接続トポロジ",
+                topo_parallel: "並列バス方式",
+                topo_direct: "PCS直接方式",
+
+                lbl_pcs_qty: "PCS 数量",
+                lbl_pcs_kw: "単機定格 (kW)",
+                lbl_pcs_vdc: "DC 入力電圧 (V)",
+                lbl_pcs_vac: "AC 出力電圧 (V)",
+                lbl_pcs_pf: "力率 (Power Factor)",
+                lbl_pcs_mode: "PCS構成方式",
+                pcs_mode_multi: "分散分散PCS",
+                pcs_mode_central: "集中型PCS",
+
+                opt_ac_panel: "AC Panel / Bus",
+                opt_ac_breaker: "AC Breaker",
+                opt_transformer: "変圧器 (Transformer)",
+                lbl_freq: "周波数:",
+                lbl_tx_kva: "変圧器容量 (kVA)",
+                lbl_tx_qty: "変圧器台数",
+                lbl_tx_primary: "一次電圧 (kV)",
+                lbl_tx_secondary: "二次電圧 (V)",
+
+                opt_mv_switchgear: "MV Switchgear",
+                opt_grid_breaker: "Grid Breaker",
+                opt_ct: "変流器 (CT)",
+                opt_vt: "変圧器 (VT/PT)",
+                opt_relay: "保護継電器",
+                opt_meter: "取引用電力量計",
+                lbl_grid_kv: "系統電圧 (kV)",
+
+                opt_bms_rack: "Rack BMS",
+                opt_bms_master: "Master BMS",
+                opt_ems: "EMS",
+                opt_scada: "SCADA / クラウド",
+                opt_estop: "非常停止回路",
+                opt_fire: "火災感知・消火",
+                opt_hvac: "HVAC 空調",
+                opt_spd: "SPD 避雷器",
+
+                // Canvas Badge & Legend
+                badge_title_power: "電力系統単線結線図",
+                badge_title_comm: "制御・通信ネットワークトポロジ",
+                badge_title_safety: "安全・防災設備配置図",
+                badge_title_full: "BESS 全体統合系統図",
+                legend_title: "凡例 (Legend)",
+                legend_power: "電力動力線 (Power Line)",
+                legend_comm: "通信制御線 (Communication)",
+                legend_safety: "信号・防災線 (Safety / Aux)",
+
+                // Inspector & Analytics
+                title_inspector: "機器詳細情報",
+                tag_select_element: "機器未選択",
+                inspector_empty: "結線図上のシンボルをクリックすると仕様の詳細が表示されます。",
+                title_design_check: "概略設計判定 (Conceptual Check)",
+                check_preliminary: "簡易判定",
+                summary_header: "システムサマリー",
+                sum_lbl_energy: "蓄電容量",
+                sum_lbl_pcs: "PCS出力",
+                sum_lbl_tx: "変圧器容量",
+                sum_lbl_ratio: "蓄電時間比率",
+                sum_lbl_crate: "想定 C-Rate",
+                sum_lbl_grid: "連系電圧",
+                disclaimer_note: "注記: 概略設計判定は初期検討・比較用です。最終設計時は短絡電流計算、高調波解析、保護協調検討を実施してください。",
+
+                // Equipment Node Names
+                node_rack: "バッテリーラック",
+                node_dc_combiner: "DC集電箱",
+                node_dc_disconnect: "DC開閉器",
+                node_pcs: "PCSインバータ",
+                node_ac_bus: "AC母線",
+                node_transformer: "変圧器",
+                node_mv_sg: "高圧受変電設備",
+                node_grid: "電力系統 (Grid)",
+                node_rack_bms: "Rack BMS",
+                node_master_bms: "Master BMS",
+                node_ems: "EMSコントローラ",
+                node_scada: "SCADAゲートウェイ",
+                node_estop: "非常停止ループ",
+                node_fire: "自動消火設備",
+                node_hvac: "HVACチラー",
+
+                // Warnings
+                warn_ok_title: "設計パラメタ検証完了",
+                warn_ok_msg: "主要な整合性エラーは検出されませんでした。",
+                warn_tx_title: "変圧器容量不足アラート",
+                warn_tx_msg: "変圧器容量がPCS最大出力を下回っています。過負荷のリスクがあります。",
+                warn_dc_title: "DC動作電圧ウィンドウ不整合",
+                warn_dc_msg: "PCS DC入力電圧がバッテリー動作電圧範囲外です。",
+                warn_crate_title: "高C-Rate運用アラート",
+                warn_crate_msg: "放電レートが 2.0C を超えています。熱設計およびセル保証条件をご確認ください。"
+            },
+            en: {
+                mode_power: "Power SLD",
+                mode_comm: "Control & Comm",
+                mode_safety: "Safety System",
+                mode_full: "Full System",
+                btn_reset: "Reset",
+                btn_save_json: "Save JSON",
+                btn_load_json: "Load JSON",
+                btn_print: "Print",
+                title_sys_params: "System Parameters",
+                btn_generate: "Generate SLD",
+
+                sec_battery: "1. Battery System",
+                sec_dc: "2. DC System",
+                sec_pcs: "3. Power Conversion System (PCS)",
+                sec_ac_tx: "4. AC & Transformer",
+                sec_mv_grid: "5. MV Switchgear & Grid",
+                sec_aux: "6. Control, BMS & Safety Aux",
+                sec_sub_comm: "Control Layer",
+                sec_sub_safety: "Safety Systems",
+
+                lbl_target_mwh: "Target Energy (MWh)",
+                lbl_rack_qty: "Rack Qty",
+                lbl_dc_vmin: "DC Min Volt (V)",
+                lbl_dc_vmax: "DC Max Volt (V)",
+                lbl_cell_ah: "Cell Capacity (Ah)",
+                lbl_cell_series: "Series Cells (S)",
+                lbl_packs_per_rack: "Packs / Rack",
+                lbl_container_qty: "Containers",
+
+                opt_dc_combiner: "DC Combiner",
+                opt_dc_disconnect: "DC Disconnect",
+                opt_dc_fuse: "DC Fuse",
+                opt_dc_breaker: "DC Breaker",
+                lbl_combiner_qty: "Combiner Qty",
+                lbl_rack_topo: "Topology",
+                topo_parallel: "Parallel Bus",
+                topo_direct: "Direct per PCS",
+
+                lbl_pcs_qty: "PCS Qty",
+                lbl_pcs_kw: "Unit Power (kW)",
+                lbl_pcs_vdc: "DC Voltage (V)",
+                lbl_pcs_vac: "AC Voltage (V)",
+                lbl_pcs_pf: "Power Factor",
+                lbl_pcs_mode: "PCS Mode",
+                pcs_mode_multi: "Multi Modular",
+                pcs_mode_central: "Central Inverter",
+
+                opt_ac_panel: "AC Panel / Bus",
+                opt_ac_breaker: "AC Breaker",
+                opt_transformer: "Transformer",
+                lbl_freq: "Freq:",
+                lbl_tx_kva: "Tx Rating (kVA)",
+                lbl_tx_qty: "Tx Qty",
+                lbl_tx_primary: "Primary (kV)",
+                lbl_tx_secondary: "Secondary (V)",
+
+                opt_mv_switchgear: "MV Switchgear",
+                opt_grid_breaker: "Grid Breaker",
+                opt_ct: "CT",
+                opt_vt: "VT / PT",
+                opt_relay: "Prot. Relay",
+                opt_meter: "Revenue Meter",
+                lbl_grid_kv: "Grid Voltage (kV)",
+
+                opt_bms_rack: "Rack BMS",
+                opt_bms_master: "Master BMS",
+                opt_ems: "EMS",
+                opt_scada: "SCADA / Cloud",
+                opt_estop: "E-Stop Loop",
+                opt_fire: "Fire Detection",
+                opt_hvac: "HVAC Unit",
+                opt_spd: "SPD Protection",
+
+                badge_title_power: "Power Single Line Diagram",
+                badge_title_comm: "Control & Communication Network Topology",
+                badge_title_safety: "Safety & Auxiliary Overlay Diagram",
+                badge_title_full: "Integrated Full BESS Architecture Diagram",
+                legend_title: "Legend",
+                legend_power: "Power Line (3-Phase AC/DC)",
+                legend_comm: "Communication (Ethernet/RS485)",
+                legend_safety: "Safety / Auxiliary Line",
+
+                title_inspector: "Component Datasheet",
+                tag_select_element: "Select Element",
+                inspector_empty: "Click any equipment block in the diagram to inspect parameters.",
+                title_design_check: "Conceptual Design Check",
+                check_preliminary: "Preliminary",
+                summary_header: "System Summary",
+                sum_lbl_energy: "BESS Energy",
+                sum_lbl_pcs: "PCS Capacity",
+                sum_lbl_tx: "Transformer",
+                sum_lbl_ratio: "BESS/PCS Ratio",
+                sum_lbl_crate: "Est. C-Rate",
+                sum_lbl_grid: "Grid Interconnect",
+                disclaimer_note: "Note: Conceptual checks are for preliminary feasibility estimation. Final designs require detailed short-circuit & protection studies.",
+
+                node_rack: "Battery Rack",
+                node_dc_combiner: "DC Combiner",
+                node_dc_disconnect: "DC Isolator",
+                node_pcs: "PCS Inverter",
+                node_ac_bus: "AC Busbar",
+                node_transformer: "Transformer",
+                node_mv_sg: "MV Switchgear",
+                node_grid: "Utility Grid",
+                node_rack_bms: "Rack BMS",
+                node_master_bms: "Master BMS",
+                node_ems: "EMS Controller",
+                node_scada: "SCADA Gateway",
+                node_estop: "E-Stop Circuit",
+                node_fire: "Fire System",
+                node_hvac: "HVAC Chiller",
+
+                warn_ok_title: "Parameters Verified",
+                warn_ok_msg: "No major preliminary engineering discrepancies detected.",
+                warn_tx_title: "Transformer Capacity Alert",
+                warn_tx_msg: "Transformer rating is less than total PCS power. Risk of overload.",
+                warn_dc_title: "DC Voltage Window Mismatch",
+                warn_dc_msg: "PCS DC voltage lies outside the Battery Operating Window.",
+                warn_crate_title: "High C-Rate Application",
+                warn_crate_msg: "Discharge rate exceeds 2.0C. Verify thermal management and cell warranty."
+            },
+            zh: {
+                mode_power: "电力单线图",
+                mode_comm: "控制通信网",
+                mode_safety: "安全消防",
+                mode_full: "全系统拓扑",
+                btn_reset: "重置",
+                btn_save_json: "保存JSON",
+                btn_load_json: "读取JSON",
+                btn_print: "打印",
+                title_sys_params: "系统配置参数",
+                btn_generate: "生成单线图",
+
+                sec_battery: "1. 电池系统 (Battery System)",
+                sec_dc: "2. 直流汇流保护 (DC System)",
+                sec_pcs: "3. 储能变流器 (PCS)",
+                sec_ac_tx: "4. 交流变压器 (AC & Transformer)",
+                sec_mv_grid: "5. 中压开关柜与电网 (MV & Grid)",
+                sec_aux: "6. 控制BMS与安全辅助",
+                sec_sub_comm: "通信控制层",
+                sec_sub_safety: "安全消防功能",
+
+                lbl_target_mwh: "目标容量 (MWh)",
+                lbl_rack_qty: "电池机柜(Rack)数量",
+                lbl_dc_vmin: "直流最低电压 (V)",
+                lbl_dc_vmax: "直流最高电压 (V)",
+                lbl_cell_ah: "电芯容量 (Ah)",
+                lbl_cell_series: "电芯串联数 (S)",
+                lbl_packs_per_rack: "电池包/机柜",
+                lbl_container_qty: "集装箱数量",
+
+                opt_dc_combiner: "直流汇流箱",
+                opt_dc_disconnect: "直流隔离开关",
+                opt_dc_fuse: "直流熔断器",
+                opt_dc_breaker: "直流断路器",
+                lbl_combiner_qty: "汇流箱数量",
+                lbl_rack_topo: "拓扑结构",
+                topo_parallel: "并联母线方式",
+                topo_direct: "PCS直连方式",
+
+                lbl_pcs_qty: "PCS 数量",
+                lbl_pcs_kw: "单机功率 (kW)",
+                lbl_pcs_vdc: "直流输入电压 (V)",
+                lbl_pcs_vac: "交流输出电压 (V)",
+                lbl_pcs_pf: "功率因数",
+                lbl_pcs_mode: "PCS 结构",
+                pcs_mode_multi: "组串式/模块化",
+                pcs_mode_central: "集中式变流器",
+
+                opt_ac_panel: "交流母线/配电柜",
+                opt_ac_breaker: "交流断路器",
+                opt_transformer: "升压变压器",
+                lbl_freq: "频率:",
+                lbl_tx_kva: "变压器容量 (kVA)",
+                lbl_tx_qty: "变压器台数",
+                lbl_tx_primary: "一次电压 (kV)",
+                lbl_tx_secondary: "二次电压 (V)",
+
+                opt_mv_switchgear: "中压开关柜",
+                opt_grid_breaker: "并网断路器",
+                opt_ct: "电流互感器(CT)",
+                opt_vt: "电压互感器(VT)",
+                opt_relay: "微机保护装置",
+                opt_meter: "关口计量表",
+                lbl_grid_kv: "电网电压 (kV)",
+
+                opt_bms_rack: "Rack BMS",
+                opt_bms_master: "Master BMS",
+                opt_ems: "能量管理系统(EMS)",
+                opt_scada: "SCADA / 云端",
+                opt_estop: "急停回路",
+                opt_fire: "火灾探测与灭火",
+                opt_hvac: "HVAC 液冷/温控",
+                opt_spd: "SPD 防雷器",
+
+                badge_title_power: "储能电力系统单线图 (Power SLD)",
+                badge_title_comm: "控制与通信网络拓扑图",
+                badge_title_safety: "安全与消防辅助系统图",
+                badge_title_full: "储能全系统集成架构图",
+                legend_title: "图例 (Legend)",
+                legend_power: "电力线路 (三相AC/DC)",
+                legend_comm: "通信控制线 (以太网/RS485)",
+                legend_safety: "安全与信号线",
+
+                title_inspector: "设备详细参数",
+                tag_select_element: "未选择设备",
+                inspector_empty: "点击单线图上的设备图标查看详细规格。",
+                title_design_check: "概念设计校验 (Conceptual Check)",
+                check_preliminary: "初步评估",
+                summary_header: "系统概要",
+                sum_lbl_energy: "电池总能量",
+                sum_lbl_pcs: "PCS总功率",
+                sum_lbl_tx: "变压器总容量",
+                sum_lbl_ratio: "储能时长比率",
+                sum_lbl_crate: "预估 C-Rate",
+                sum_lbl_grid: "并网电压",
+                disclaimer_note: "注意: 概念设计校验仅供初期可行性评估。最终设计需进行短路电流计算与保护配合分析。",
+
+                node_rack: "电池机柜",
+                node_dc_combiner: "直流汇流箱",
+                node_dc_disconnect: "直流隔离开关",
+                node_pcs: "PCS变流器",
+                node_ac_bus: "交流母线",
+                node_transformer: "升压变压器",
+                node_mv_sg: "中压开关柜",
+                node_grid: "电网 (Grid)",
+                node_rack_bms: "Rack BMS",
+                node_master_bms: "Master BMS",
+                node_ems: "EMS 控制器",
+                node_scada: "SCADA 网关",
+                node_estop: "急停控制回路",
+                node_fire: "自动灭火系统",
+                node_hvac: "HVAC 冷水机组",
+
+                warn_ok_title: "参数校验通过",
+                warn_ok_msg: "未检测到主要概念设计不一致問題。",
+                warn_tx_title: "变压器容量不足警告",
+                warn_tx_msg: "变压器容量小于PCS最大总输出功率，存在过载风险。",
+                warn_dc_title: "直流电压窗口不匹配",
+                warn_dc_msg: "PCS直流输入电压超出电池正常工作电压范围。",
+                warn_crate_title: "高倍率(C-Rate)运行提示",
+                warn_crate_msg: "放电倍率超过 2.0C，请确认电池热管理及保修条款。"
+            }
+        };
+
+        function getTranslation(key) {
+            return (i18nDict[currentLang] && i18nDict[currentLang][key]) || i18nDict['en'][key] || key;
+        }
+
+        function changeLanguage(lang) {
+            currentLang = lang;
+            document.documentElement.lang = lang;
+
+            // Translate text elements with data-i18n attribute
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (key) {
+                    el.innerText = getTranslation(key);
+                }
+            });
+
+            // Update title badge according to current view mode
+            updateBadgeTitle();
+
+            // Re-render diagram & update components
+            triggerSLDUpdate();
+        }
+
+        function updateBadgeTitle() {
+            const modeBadgeMap = {
+                power: 'badge_title_power',
+                comm: 'badge_title_comm',
+                safety: 'badge_title_safety',
+                full: 'badge_title_full'
+            };
+            const badgeEl = document.getElementById('diagram-title-badge');
+            if (badgeEl) {
+                badgeEl.innerText = getTranslation(modeBadgeMap[currentViewMode] || 'badge_title_power');
+            }
+        }
+
+        // Current state
+        let currentViewMode = 'power';
+        let currentSystemGraph = { nodes: [], links: [] };
+        let selectedNodeId = null;
+
+        let zoomLevel = 1.0;
+        let panX = 0;
+        let panY = 0;
+        let isDragging = false;
+        let startX = 0, startY = 0;
+
+        window.onload = function() {
+            setupEventListeners();
+            setupPanZoom();
+            changeLanguage('ja'); // Default Japanese
+        };
+
+        function setupEventListeners() {
+            const inputs = document.querySelectorAll('input, select');
+            inputs.forEach(input => {
+                if (input.id === 'lang-selector') return;
+                input.addEventListener('change', () => triggerSLDUpdate());
+                if (input.type === 'number') {
+                    input.addEventListener('keyup', () => triggerSLDUpdate());
+                }
+            });
+        }
+
+        function setupPanZoom() {
+            const viewport = document.getElementById('svg-viewport');
+
+            viewport.addEventListener('mousedown', (e) => {
+                if (e.target.closest('.sld-element')) return;
+                isDragging = true;
+                startX = e.clientX - panX;
+                startY = e.clientY - panY;
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                panX = e.clientX - startX;
+                panY = e.clientY - startY;
+                applyTransform();
+            });
+
+            window.addEventListener('mouseup', () => { isDragging = false; });
+
+            viewport.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+                zoomLevel = Math.min(Math.max(0.4, zoomLevel * zoomFactor), 3.0);
+                applyTransform();
+            });
+        }
+
+        function zoomCanvas(factor) {
+            zoomLevel = Math.min(Math.max(0.4, zoomLevel * factor), 3.0);
+            applyTransform();
+        }
+
+        function resetZoom() {
+            zoomLevel = 1.0;
+            panX = 0;
+            panY = 0;
+            applyTransform();
+        }
+
+        function applyTransform() {
+            const g = document.getElementById('svg-transform-group');
+            g.setAttribute('transform', `translate(${panX}, ${panY}) scale(${zoomLevel})`);
+        }
+
+        function setViewMode(mode) {
+            currentViewMode = mode;
+            ['power', 'comm', 'safety', 'full'].forEach(m => {
+                const btn = document.getElementById(`btn-mode-${m}`);
+                if (m === mode) {
+                    btn.className = "px-3 py-1 text-xs font-medium rounded-md transition-colors bg-blue-600 text-white shadow";
+                } else {
+                    btn.className = "px-3 py-1 text-xs font-medium rounded-md transition-colors text-slate-300 hover:text-white";
+                }
+            });
+            updateBadgeTitle();
+            triggerSLDUpdate();
+        }
+
+        function resetDefaults() {
+            document.getElementById('cfg-battery-energy').value = 1.5;
+            document.getElementById('cfg-rack-qty').value = 4;
+            document.getElementById('cfg-dc-vmin').value = 1000;
+            document.getElementById('cfg-dc-vmax').value = 1500;
+            document.getElementById('cfg-cell-ah').value = 314;
+            document.getElementById('cfg-cell-series').value = 52;
+            document.getElementById('cfg-packs-per-rack').value = 8;
+            document.getElementById('cfg-container-qty').value = 1;
+
+            document.getElementById('cfg-dc-combiner').checked = true;
+            document.getElementById('cfg-dc-disconnect').checked = true;
+            document.getElementById('cfg-dc-fuse').checked = true;
+            document.getElementById('cfg-dc-breaker').checked = true;
+            document.getElementById('cfg-dc-combiner-qty').value = 1;
+
+            document.getElementById('cfg-pcs-qty').value = 4;
+            document.getElementById('cfg-pcs-kw').value = 500;
+            document.getElementById('cfg-pcs-v-dc').value = 1250;
+            document.getElementById('cfg-pcs-v-ac').value = 690;
+
+            document.getElementById('cfg-ac-panel').checked = true;
+            document.getElementById('cfg-ac-breaker').checked = true;
+            document.getElementById('cfg-transformer-toggle').checked = true;
+            document.getElementById('cfg-tx-kva').value = 2500;
+            document.getElementById('cfg-tx-qty').value = 1;
+            document.getElementById('cfg-tx-primary-kv').value = 6.6;
+            document.getElementById('cfg-tx-secondary-v').value = 690;
+
+            document.getElementById('cfg-mv-switchgear').checked = true;
+            document.getElementById('cfg-grid-breaker').checked = true;
+            document.getElementById('cfg-grid-voltage').value = 6.6;
+
+            triggerSLDUpdate();
+        }
+
+        function getInputs() {
+            return {
+                batteryEnergy: parseFloat(document.getElementById('cfg-battery-energy').value) || 1.5,
+                rackQty: parseInt(document.getElementById('cfg-rack-qty').value) || 4,
+                dcVMin: parseFloat(document.getElementById('cfg-dc-vmin').value) || 1000,
+                dcVMax: parseFloat(document.getElementById('cfg-dc-vmax').value) || 1500,
+                cellAh: parseFloat(document.getElementById('cfg-cell-ah').value) || 314,
+                cellSeries: parseInt(document.getElementById('cfg-cell-series').value) || 52,
+                packsPerRack: parseInt(document.getElementById('cfg-packs-per-rack').value) || 8,
+                containers: parseInt(document.getElementById('cfg-container-qty').value) || 1,
+
+                dcCombiner: document.getElementById('cfg-dc-combiner').checked,
+                dcDisconnect: document.getElementById('cfg-dc-disconnect').checked,
+                dcFuse: document.getElementById('cfg-dc-fuse').checked,
+                dcBreaker: document.getElementById('cfg-dc-breaker').checked,
+                dcCombinerQty: parseInt(document.getElementById('cfg-dc-combiner-qty').value) || 1,
+
+                pcsQty: parseInt(document.getElementById('cfg-pcs-qty').value) || 4,
+                pcsKw: parseFloat(document.getElementById('cfg-pcs-kw').value) || 500,
+                pcsVDc: parseFloat(document.getElementById('cfg-pcs-v-dc').value) || 1250,
+                pcsVAc: parseFloat(document.getElementById('cfg-pcs-v-ac').value) || 690,
+                pcsPf: parseFloat(document.getElementById('cfg-pcs-pf').value) || 0.99,
+
+                acPanel: document.getElementById('cfg-ac-panel').checked,
+                acBreaker: document.getElementById('cfg-ac-breaker').checked,
+                hasTransformer: document.getElementById('cfg-transformer-toggle').checked,
+                frequency: document.getElementById('cfg-frequency').value,
+                txKva: parseFloat(document.getElementById('cfg-tx-kva').value) || 2500,
+                txQty: parseInt(document.getElementById('cfg-tx-qty').value) || 1,
+                txPrimaryKv: parseFloat(document.getElementById('cfg-tx-primary-kv').value) || 6.6,
+                txSecondaryV: parseFloat(document.getElementById('cfg-tx-secondary-v').value) || 690,
+
+                mvSwitchgear: document.getElementById('cfg-mv-switchgear').checked,
+                gridBreaker: document.getElementById('cfg-grid-breaker').checked,
+                gridVoltageKv: parseFloat(document.getElementById('cfg-grid-voltage').value) || 6.6,
+                ct: document.getElementById('cfg-ct').checked,
+                vt: document.getElementById('cfg-vt').checked,
+                relay: document.getElementById('cfg-relay').checked,
+                meter: document.getElementById('cfg-meter').checked,
+
+                bmsRack: document.getElementById('cfg-bms-rack').checked,
+                bmsMaster: document.getElementById('cfg-bms-master').checked,
+                ems: document.getElementById('cfg-ems').checked,
+                scada: document.getElementById('cfg-scada').checked,
+                eStop: document.getElementById('cfg-estop').checked,
+                fire: document.getElementById('cfg-fire').checked,
+                hvac: document.getElementById('cfg-hvac').checked,
+                spd: document.getElementById('cfg-spd').checked
+            };
+        }
+
+        function triggerSLDUpdate() {
+            const cfg = getInputs();
+
+            const packNominalVolt = cfg.cellSeries * 3.2;
+            const rackNominalVolt = packNominalVolt * cfg.packsPerRack;
+            const rackCapacityKwh = (rackNominalVolt * cfg.cellAh) / 1000;
+            const totalCalcEnergyMwh = (rackCapacityKwh * cfg.rackQty) / 1000;
+            const totalPcsPowerMw = (cfg.pcsQty * cfg.pcsKw) / 1000;
+            const totalTxMva = (cfg.txKva * cfg.txQty) / 1000;
+
+            document.getElementById('badge-total-mwh').innerText = `${totalCalcEnergyMwh.toFixed(2)} MWh`;
+            document.getElementById('badge-total-pcs-mw').innerText = `${totalPcsPowerMw.toFixed(2)} MW`;
+
+            document.getElementById('sum-energy').innerText = `${totalCalcEnergyMwh.toFixed(2)} MWh`;
+            document.getElementById('sum-pcs-mw').innerText = `${totalPcsPowerMw.toFixed(2)} MW`;
+            document.getElementById('sum-tx-mva').innerText = `${totalTxMva.toFixed(2)} MVA`;
+            
+            const ratio = totalPcsPowerMw > 0 ? (totalCalcEnergyMwh / totalPcsPowerMw).toFixed(2) : 0;
+            document.getElementById('sum-ratio').innerText = `${ratio} h`;
+
+            const crate = totalCalcEnergyMwh > 0 ? (totalPcsPowerMw / totalCalcEnergyMwh).toFixed(2) : 0;
+            document.getElementById('sum-crate').innerText = `${crate} C`;
+            document.getElementById('sum-grid-kv').innerText = `${cfg.gridVoltageKv} kV`;
+
+            runConceptualDesignChecks(cfg, totalCalcEnergyMwh, totalPcsPowerMw, totalTxMva);
+
+            currentSystemGraph = buildSystemGraph(cfg, rackCapacityKwh, rackNominalVolt);
+
+            renderSVGDiagram(currentSystemGraph);
+
+            if (selectedNodeId) {
+                const node = currentSystemGraph.nodes.find(n => n.id === selectedNodeId);
+                if (node) updateInspector(node);
+            }
+        }
+
+        function buildSystemGraph(cfg, rackCapacityKwh, rackNominalVolt) {
+            const nodes = [];
+            const links = [];
+
+            // 1. Battery Racks
+            for (let i = 1; i <= cfg.rackQty; i++) {
+                const rackId = `Rack-${String(i).padStart(2, '0')}`;
+                nodes.push({
+                    id: rackId,
+                    type: 'BatteryRack',
+                    name: `${getTranslation('node_rack')} ${i}`,
+                    rating: `${rackCapacityKwh.toFixed(1)} kWh`,
+                    voltage: `${cfg.dcVMin}-${cfg.dcVMax} VDC`,
+                    capacity: `${cfg.cellAh} Ah`,
+                    category: 'power',
+                    details: {
+                        'Series Cells': `${cfg.cellSeries}S`,
+                        'Packs/Rack': cfg.packsPerRack,
+                        'Nominal Volt': `${rackNominalVolt.toFixed(0)} V`
+                    }
+                });
+
+                if (cfg.bmsRack && (currentViewMode === 'comm' || currentViewMode === 'full')) {
+                    const bmsId = `RackBMS-${i}`;
+                    nodes.push({
+                        id: bmsId,
+                        type: 'RackBMS',
+                        name: `Rack BMS ${i}`,
+                        category: 'comm',
+                        details: { 'Monitored Volt': `${cfg.dcVMax} V` }
+                    });
+                    links.push({ from: rackId, to: bmsId, type: 'comm' });
+                }
+            }
+
+            // 2. DC System
+            let dcLastStageIds = nodes.filter(n => n.type === 'BatteryRack').map(n => n.id);
+
+            if (cfg.dcCombiner && (currentViewMode === 'power' || currentViewMode === 'full')) {
+                const combinerId = 'DC-Combiner-01';
+                nodes.push({
+                    id: combinerId,
+                    type: 'DCCombiner',
+                    name: getTranslation('node_dc_combiner'),
+                    rating: `${cfg.dcVMax} VDC`,
+                    voltage: `${cfg.dcVMax} V`,
+                    category: 'power',
+                    details: { 'Inputs': `${cfg.rackQty} Strings` }
+                });
+                dcLastStageIds.forEach(fromId => links.push({ from: fromId, to: combinerId, type: 'power' }));
+                dcLastStageIds = [combinerId];
+            }
+
+            if (cfg.dcDisconnect && (currentViewMode === 'power' || currentViewMode === 'full')) {
+                const discId = 'DC-Disconnect-01';
+                nodes.push({
+                    id: discId,
+                    type: 'DCDisconnect',
+                    name: getTranslation('node_dc_disconnect'),
+                    rating: `${cfg.dcVMax} VDC / 2500A`,
+                    category: 'power',
+                    details: { 'Poles': '2-Pole Solid' }
+                });
+                dcLastStageIds.forEach(fromId => links.push({ from: fromId, to: discId, type: 'power' }));
+                dcLastStageIds = [discId];
+            }
+
+            // 3. PCS
+            const pcsIds = [];
+            for (let i = 1; i <= cfg.pcsQty; i++) {
+                const pcsId = `PCS-${String(i).padStart(2, '0')}`;
+                pcsIds.push(pcsId);
+                nodes.push({
+                    id: pcsId,
+                    type: 'PCS',
+                    name: `${getTranslation('node_pcs')} ${i}`,
+                    rating: `${cfg.pcsKw} kW`,
+                    voltage: `${cfg.pcsVDc}V DC / ${cfg.pcsVAc}V AC`,
+                    capacity: `${cfg.pcsKw} kW`,
+                    category: 'power',
+                    details: {
+                        'Power Factor': cfg.pcsPf,
+                        'AC Output': `${cfg.pcsVAc} V`
+                    }
+                });
+
+                if (currentViewMode === 'power' || currentViewMode === 'full') {
+                    dcLastStageIds.forEach(fromId => links.push({ from: fromId, to: pcsId, type: 'power' }));
+                }
+            }
+
+            // 4. AC Collector Bus
+            let acStageIds = [...pcsIds];
+            if (cfg.acPanel && (currentViewMode === 'power' || currentViewMode === 'full')) {
+                const acBusId = 'AC-Bus-01';
+                nodes.push({
+                    id: acBusId,
+                    type: 'ACBus',
+                    name: getTranslation('node_ac_bus'),
+                    rating: `${cfg.pcsVAc} V`,
+                    voltage: `${cfg.pcsVAc} V`,
+                    category: 'power',
+                    details: { 'Bus Rating': '4000A Solid' }
+                });
+                pcsIds.forEach(pcsId => links.push({ from: pcsId, to: acBusId, type: 'power' }));
+                acStageIds = [acBusId];
+            }
+
+            // 5. Transformer
+            if (cfg.hasTransformer && (currentViewMode === 'power' || currentViewMode === 'full')) {
+                const txId = 'Transformer-01';
+                nodes.push({
+                    id: txId,
+                    type: 'Transformer',
+                    name: getTranslation('node_transformer'),
+                    rating: `${cfg.txKva} kVA`,
+                    voltage: `${cfg.txSecondaryV}V / ${cfg.txPrimaryKv}kV`,
+                    capacity: `${cfg.txKva} kVA`,
+                    category: 'power',
+                    details: {
+                        'Vector Group': 'Dyn11',
+                        'Cooling': 'ONAN'
+                    }
+                });
+                acStageIds.forEach(fromId => links.push({ from: fromId, to: txId, type: 'power' }));
+                acStageIds = [txId];
+            }
+
+            // 6. MV Switchgear
+            if (cfg.mvSwitchgear && (currentViewMode === 'power' || currentViewMode === 'full')) {
+                const mvId = 'MV-Switchgear-01';
+                nodes.push({
+                    id: mvId,
+                    type: 'MVSwitchgear',
+                    name: getTranslation('node_mv_sg'),
+                    rating: `${cfg.gridVoltageKv} kV`,
+                    voltage: `${cfg.gridVoltageKv} kV`,
+                    category: 'power',
+                    details: { 'Rating': '25 kA / 3s' }
+                });
+                acStageIds.forEach(fromId => links.push({ from: fromId, to: mvId, type: 'power' }));
+                acStageIds = [mvId];
+            }
+
+            // 7. Grid Point
+            if (currentViewMode === 'power' || currentViewMode === 'full') {
+                const gridId = 'Grid-Connection';
+                nodes.push({
+                    id: gridId,
+                    type: 'Grid',
+                    name: getTranslation('node_grid'),
+                    rating: `${cfg.gridVoltageKv} kV`,
+                    voltage: `${cfg.gridVoltageKv} kV`,
+                    category: 'power',
+                    details: { 'Frequency': `${cfg.frequency} Hz` }
+                });
+                acStageIds.forEach(fromId => links.push({ from: fromId, to: gridId, type: 'power' }));
+            }
+
+            // 8. Communication Nodes
+            if (currentViewMode === 'comm' || currentViewMode === 'full') {
+                nodes.push({ id: 'Master-BMS', type: 'MasterBMS', name: getTranslation('node_master_bms'), category: 'comm', details: { Protocol: 'Modbus TCP' } });
+                nodes.push({ id: 'EMS-Controller', type: 'EMS', name: getTranslation('node_ems'), category: 'comm', details: { Protocol: 'IEC 60870-5-104' } });
+                nodes.push({ id: 'SCADA-Gateway', type: 'SCADA', name: getTranslation('node_scada'), category: 'comm', details: { Availability: '99.9%' } });
+
+                nodes.filter(n => n.type === 'RackBMS').forEach(bms => {
+                    links.push({ from: bms.id, to: 'Master-BMS', type: 'comm' });
+                });
+                links.push({ from: 'Master-BMS', to: 'EMS-Controller', type: 'comm' });
+                pcsIds.forEach(pId => links.push({ from: pId, to: 'EMS-Controller', type: 'comm' }));
+                links.push({ from: 'EMS-Controller', to: 'SCADA-Gateway', type: 'comm' });
+            }
+
+            // 9. Safety System
+            if (currentViewMode === 'safety' || currentViewMode === 'full') {
+                nodes.push({ id: 'E-Stop', type: 'Safety', name: getTranslation('node_estop'), category: 'safety', details: { Standard: 'SIL 3' } });
+                nodes.push({ id: 'Fire-Suppression', type: 'Safety', name: getTranslation('node_fire'), category: 'safety', details: { Agent: 'Novec 1230' } });
+                nodes.push({ id: 'HVAC-Control', type: 'Safety', name: getTranslation('node_hvac'), category: 'safety', details: { Mode: 'Chilled Water' } });
+
+                nodes.filter(n => n.type === 'BatteryRack').forEach(r => {
+                    links.push({ from: 'E-Stop', to: r.id, type: 'safety' });
+                    links.push({ from: 'Fire-Suppression', to: r.id, type: 'safety' });
+                });
+            }
+
+            return { nodes, links };
+        }
+
+        function renderSVGDiagram(graph) {
+            const container = document.getElementById('svg-transform-group');
+            container.innerHTML = '';
+
+            let visibleNodes = graph.nodes;
+            let visibleLinks = graph.links;
+
+            if (currentViewMode === 'power') {
+                visibleNodes = graph.nodes.filter(n => n.category === 'power');
+                visibleLinks = graph.links.filter(l => l.type === 'power');
+            } else if (currentViewMode === 'comm') {
+                visibleNodes = graph.nodes.filter(n => n.category === 'comm' || n.type === 'PCS' || n.type === 'BatteryRack');
+                visibleLinks = graph.links.filter(l => l.type === 'comm');
+            } else if (currentViewMode === 'safety') {
+                visibleNodes = graph.nodes.filter(n => n.category === 'safety' || n.type === 'BatteryRack');
+                visibleLinks = graph.links.filter(l => l.type === 'safety');
+            }
+
+            const stages = {
+                racks: visibleNodes.filter(n => n.type === 'BatteryRack'),
+                dcComb: visibleNodes.filter(n => n.type === 'DCCombiner' || n.type === 'DCDisconnect'),
+                pcs: visibleNodes.filter(n => n.type === 'PCS'),
+                acBus: visibleNodes.filter(n => n.type === 'ACBus'),
+                transformer: visibleNodes.filter(n => n.type === 'Transformer'),
+                mv: visibleNodes.filter(n => n.type === 'MVSwitchgear'),
+                grid: visibleNodes.filter(n => n.type === 'Grid'),
+                comm: visibleNodes.filter(n => n.category === 'comm'),
+                safety: visibleNodes.filter(n => n.category === 'safety')
+            };
+
+            const colX = {
+                racks: 90,
+                dcComb: 290,
+                pcs: 490,
+                acBus: 690,
+                transformer: 890,
+                mv: 1090,
+                grid: 1290,
+                comm: 490,
+                safety: 290
+            };
+
+            const positions = {};
+            const startY = 150;
+            const itemHeight = 90;
+
+            stages.racks.forEach((node, idx) => {
+                positions[node.id] = { x: colX.racks, y: startY + idx * itemHeight };
+            });
+
+            const dcCenterY = startY + ((stages.racks.length - 1) * itemHeight) / 2;
+            stages.dcComb.forEach((node, idx) => {
+                positions[node.id] = { x: colX.dcComb, y: dcCenterY + (idx * 100) };
+            });
+
+            stages.pcs.forEach((node, idx) => {
+                positions[node.id] = { x: colX.pcs, y: startY + idx * itemHeight };
+            });
+
+            const mainCenterY = startY + Math.max(stages.racks.length - 1, stages.pcs.length - 1) * (itemHeight / 2);
+            if (stages.acBus[0]) positions[stages.acBus[0].id] = { x: colX.acBus, y: mainCenterY };
+            if (stages.transformer[0]) positions[stages.transformer[0].id] = { x: colX.transformer, y: mainCenterY };
+            if (stages.mv[0]) positions[stages.mv[0].id] = { x: colX.mv, y: mainCenterY };
+            if (stages.grid[0]) positions[stages.grid[0].id] = { x: colX.grid, y: mainCenterY };
+
+            stages.comm.forEach((node, idx) => {
+                positions[node.id] = { x: colX.comm + (idx * 190), y: mainCenterY + 260 };
+            });
+            stages.safety.forEach((node, idx) => {
+                positions[node.id] = { x: colX.safety + (idx * 190), y: 50 };
+            });
+
+            visibleLinks.forEach(link => {
+                const p1 = positions[link.from];
+                const p2 = positions[link.to];
+                if (p1 && p2) {
+                    drawOrthogonalLink(container, p1, p2, link.type);
+                }
+            });
+
+            visibleNodes.forEach(node => {
+                const pos = positions[node.id];
+                if (pos) {
+                    drawEquipmentNode(container, node, pos.x, pos.y);
+                }
+            });
+        }
+
+        function drawOrthogonalLink(container, p1, p2, type) {
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            const midX = (p1.x + p2.x) / 2;
+            const d = `M ${p1.x + 40} ${p1.y} H ${midX} V ${p2.y} H ${p2.x - 40}`;
+            path.setAttribute('d', d);
+
+            if (type === 'power') {
+                path.setAttribute('stroke', '#0f172a');
+                path.setAttribute('stroke-width', '2.5');
+                path.setAttribute('fill', 'none');
+            } else if (type === 'comm') {
+                path.setAttribute('stroke', '#059669');
+                path.setAttribute('stroke-width', '1.8');
+                path.setAttribute('stroke-dasharray', '4 3');
+                path.setAttribute('fill', 'none');
+            } else {
+                path.setAttribute('stroke', '#dc2626');
+                path.setAttribute('stroke-width', '1.8');
+                path.setAttribute('stroke-dasharray', '2 2');
+                path.setAttribute('fill', 'none');
+            }
+
+            container.appendChild(path);
+        }
+
+        function drawEquipmentNode(container, node, x, y) {
+            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            g.setAttribute('class', `sld-element ${node.id === selectedNodeId ? 'selected' : ''}`);
+            g.setAttribute('transform', `translate(${x}, ${y})`);
+            g.onclick = (e) => {
+                e.stopPropagation();
+                selectNode(node.id);
+            };
+
+            const isSelected = node.id === selectedNodeId;
+            const strokeColor = isSelected ? '#2563eb' : '#1e293b';
+
+            let symbolContent = '';
+
+            switch (node.type) {
+                case 'BatteryRack':
+                    symbolContent = `
+                        <rect x="-38" y="-25" width="76" height="50" rx="4" fill="#ffffff" stroke="${strokeColor}" stroke-width="2"/>
+                        <line x1="-28" y1="-12" x2="28" y2="-12" stroke="#0284c7" stroke-width="3"/>
+                        <line x1="-28" y1="0" x2="28" y2="0" stroke="#0284c7" stroke-width="3"/>
+                        <line x1="-28" y1="12" x2="28" y2="12" stroke="#0284c7" stroke-width="3"/>
+                        <text x="0" y="38" text-anchor="middle" font-size="10" font-weight="bold" fill="#334155">${node.name}</text>
+                    `;
+                    break;
+
+                case 'DCCombiner':
+                    symbolContent = `
+                        <rect x="-30" y="-20" width="60" height="40" rx="3" fill="#ffffff" stroke="${strokeColor}" stroke-width="2"/>
+                        <path d="M -15 -10 L 0 10 L 15 -10" fill="none" stroke="#0284c7" stroke-width="2"/>
+                        <text x="0" y="32" text-anchor="middle" font-size="10" font-weight="bold" fill="#334155">${node.name}</text>
+                    `;
+                    break;
+
+                case 'DCDisconnect':
+                    symbolContent = `
+                        <circle cx="0" cy="0" r="18" fill="#ffffff" stroke="${strokeColor}" stroke-width="2"/>
+                        <line x1="-12" y1="8" x2="12" y2="-8" stroke="#1e293b" stroke-width="2.5"/>
+                        <text x="0" y="32" text-anchor="middle" font-size="10" font-weight="bold" fill="#334155">${node.name}</text>
+                    `;
+                    break;
+
+                case 'PCS':
+                    symbolContent = `
+                        <rect x="-38" y="-25" width="76" height="50" rx="4" fill="#ffffff" stroke="${strokeColor}" stroke-width="2"/>
+                        <line x1="-38" y1="25" x2="38" y2="-25" stroke="#cbd5e1" stroke-width="1"/>
+                        <text x="-18" y="10" font-size="10" font-weight="bold" fill="#0284c7">DC</text>
+                        <text x="6" y="-5" font-size="10" font-weight="bold" fill="#0284c7">AC</text>
+                        <text x="0" y="38" text-anchor="middle" font-size="10" font-weight="bold" fill="#334155">${node.name}</text>
+                    `;
+                    break;
+
+                case 'ACBus':
+                    symbolContent = `
+                        <rect x="-10" y="-45" width="20" height="90" fill="#1e293b" rx="2"/>
+                        <text x="0" y="60" text-anchor="middle" font-size="10" font-weight="bold" fill="#334155">${node.name}</text>
+                    `;
+                    break;
+
+                case 'Transformer':
+                    symbolContent = `
+                        <circle cx="-12" cy="0" r="20" fill="none" stroke="${strokeColor}" stroke-width="2"/>
+                        <circle cx="12" cy="0" r="20" fill="none" stroke="${strokeColor}" stroke-width="2"/>
+                        <text x="0" y="35" text-anchor="middle" font-size="10" font-weight="bold" fill="#334155">${node.name}</text>
+                        <text x="0" y="47" text-anchor="middle" font-size="8" fill="#64748b">${node.rating}</text>
+                    `;
+                    break;
+
+                case 'MVSwitchgear':
+                    symbolContent = `
+                        <rect x="-32" y="-25" width="64" height="50" rx="2" fill="#ffffff" stroke="${strokeColor}" stroke-width="2"/>
+                        <circle cx="0" cy="-5" r="8" fill="none" stroke="#dc2626" stroke-width="2"/>
+                        <path d="M -8 10 L 8 10" stroke="#1e293b" stroke-width="2"/>
+                        <text x="0" y="38" text-anchor="middle" font-size="10" font-weight="bold" fill="#334155">${node.name}</text>
+                    `;
+                    break;
+
+                case 'Grid':
+                    symbolContent = `
+                        <circle cx="0" cy="0" r="22" fill="#ffffff" stroke="${strokeColor}" stroke-width="2.5"/>
+                        <path d="M -12 0 Q 0 -12 12 0 T 24 0" fill="none" stroke="#0284c7" stroke-width="2" transform="translate(-6,0)"/>
+                        <text x="0" y="36" text-anchor="middle" font-size="10" font-weight="bold" fill="#334155">${node.name}</text>
+                    `;
+                    break;
+
+                default:
+                    symbolContent = `
+                        <rect x="-40" y="-18" width="80" height="36" rx="6" fill="#f8fafc" stroke="${strokeColor}" stroke-width="1.8"/>
+                        <text x="0" y="4" text-anchor="middle" font-size="9" font-weight="bold" fill="#334155">${node.name}</text>
+                    `;
+            }
+
+            g.innerHTML = symbolContent;
+            container.appendChild(g);
+        }
+
+        function selectNode(id) {
+            selectedNodeId = id;
+            const node = currentSystemGraph.nodes.find(n => n.id === id);
+            if (node) updateInspector(node);
+            renderSVGDiagram(currentSystemGraph);
+        }
+
+        function updateInspector(node) {
+            document.getElementById('selected-type-tag').innerText = node.type;
+
+            let detailsHtml = `
+                <div class="border-b border-slate-100 pb-2 mb-2">
+                    <h3 class="font-bold text-sm text-slate-800">${node.name}</h3>
+                    <p class="text-[11px] text-slate-500 font-mono">ID: ${node.id}</p>
+                </div>
+                <div class="space-y-1.5 font-mono text-[11px]">
+            `;
+
+            if (node.rating) {
+                detailsHtml += `<div class="flex justify-between"><span class="text-slate-500">Rating:</span><span class="font-semibold text-slate-800">${node.rating}</span></div>`;
+            }
+            if (node.voltage) {
+                detailsHtml += `<div class="flex justify-between"><span class="text-slate-500">Voltage:</span><span class="font-semibold text-slate-800">${node.voltage}</span></div>`;
+            }
+
+            if (node.details) {
+                Object.entries(node.details).forEach(([key, val]) => {
+                    detailsHtml += `<div class="flex justify-between"><span class="text-slate-500">${key}:</span><span class="text-slate-700">${val}</span></div>`;
+                });
+            }
+
+            detailsHtml += `</div>`;
+            document.getElementById('inspector-content').innerHTML = detailsHtml;
+        }
+
+        function runConceptualDesignChecks(cfg, totalMwh, totalPcsMw, totalTxMva) {
+            const container = document.getElementById('design-checks-container');
+            container.innerHTML = '';
+
+            const warnings = [];
+
+            if (cfg.hasTransformer && totalTxMva < totalPcsMw) {
+                warnings.push({
+                    type: 'error',
+                    title: getTranslation('warn_tx_title'),
+                    msg: getTranslation('warn_tx_msg')
+                });
+            }
+
+            if (cfg.pcsVDc < cfg.dcVMin || cfg.pcsVDc > cfg.dcVMax) {
+                warnings.push({
+                    type: 'warning',
+                    title: getTranslation('warn_dc_title'),
+                    msg: getTranslation('warn_dc_msg')
+                });
+            }
+
+            if (totalMwh > 0 && (totalPcsMw / totalMwh) > 2.0) {
+                warnings.push({
+                    type: 'warning',
+                    title: getTranslation('warn_crate_title'),
+                    msg: getTranslation('warn_crate_msg')
+                });
+            }
+
+            if (warnings.length === 0) {
+                container.innerHTML = `
+                    <div class="bg-emerald-50 border border-emerald-200 text-emerald-800 p-2.5 rounded-md flex items-start space-x-2">
+                        <svg class="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                        <div>
+                            <div class="font-bold text-[11px]">${getTranslation('warn_ok_title')}</div>
+                            <div class="text-[10px] text-emerald-700">${getTranslation('warn_ok_msg')}</div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                warnings.forEach(w => {
+                    const isErr = w.type === 'error';
+                    const box = document.createElement('div');
+                    box.className = `${isErr ? 'bg-red-50 border-red-200 text-red-800' : 'bg-amber-50 border-amber-200 text-amber-800'} border p-2.5 rounded-md text-[11px] space-y-0.5`;
+                    box.innerHTML = `
+                        <div class="font-bold flex items-center gap-1">
+                            <span>${isErr ? '⛔' : '⚠️'}</span> ${w.title}
+                        </div>
+                        <div class="text-[10px] opacity-90">${w.msg}</div>
+                    `;
+                    container.appendChild(box);
+                });
+            }
+        }
+
+        function exportSVG() {
+            const svgElement = document.getElementById('main-sld-svg');
+            const clone = svgElement.cloneNode(true);
+            
+            const style = document.createElement('style');
+            style.textContent = `
+                text { font-family: 'Inter', sans-serif; }
+            `;
+            clone.prepend(style);
+
+            const serializer = new XMLSerializer();
+            const svgString = serializer.serializeToString(clone);
+            const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `BESS_Single_Line_Diagram_${new Date().toISOString().slice(0,10)}.svg`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function exportPNG() {
+            const svgElement = document.getElementById('main-sld-svg');
+            const serializer = new XMLSerializer();
+            const svgString = serializer.serializeToString(svgElement);
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = 1600;
+            canvas.height = 900;
+            const ctx = canvas.getContext('2d');
+
+            const img = new Image();
+            const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+            const url = URL.createObjectURL(svgBlob);
+
+            img.onload = function() {
+                ctx.fillStyle = '#fafbfc';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0);
+                
+                const pngUrl = canvas.toDataURL('image/png');
+                const a = document.createElement('a');
+                a.href = pngUrl;
+                a.download = `BESS_Single_Line_Diagram_${new Date().toISOString().slice(0,10)}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            };
+            img.src = url;
+        }
+
+        function exportJSON() {
+            const cfg = getInputs();
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(cfg, null, 2));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", `BESS_Configuration_${new Date().toISOString().slice(0,10)}.json`);
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        }
+
+        function importJSON(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const cfg = JSON.parse(e.target.result);
+                    
+                    if (cfg.batteryEnergy) document.getElementById('cfg-battery-energy').value = cfg.batteryEnergy;
+                    if (cfg.rackQty) document.getElementById('cfg-rack-qty').value = cfg.rackQty;
+                    if (cfg.dcVMin) document.getElementById('cfg-dc-vmin').value = cfg.dcVMin;
+                    if (cfg.dcVMax) document.getElementById('cfg-dc-vmax').value = cfg.dcVMax;
+                    if (cfg.cellAh) document.getElementById('cfg-cell-ah').value = cfg.cellAh;
+                    if (cfg.cellSeries) document.getElementById('cfg-cell-series').value = cfg.cellSeries;
+                    if (cfg.packsPerRack) document.getElementById('cfg-packs-per-rack').value = cfg.packsPerRack;
+                    
+                    if (cfg.pcsQty) document.getElementById('cfg-pcs-qty').value = cfg.pcsQty;
+                    if (cfg.pcsKw) document.getElementById('cfg-pcs-kw').value = cfg.pcsKw;
+                    if (cfg.pcsVDc) document.getElementById('cfg-pcs-v-dc').value = cfg.pcsVDc;
+                    if (cfg.pcsVAc) document.getElementById('cfg-pcs-v-ac').value = cfg.pcsVAc;
+
+                    if (cfg.txKva) document.getElementById('cfg-tx-kva').value = cfg.txKva;
+                    if (cfg.gridVoltageKv) document.getElementById('cfg-grid-voltage').value = cfg.gridVoltageKv;
+
+                    triggerSLDUpdate();
+                } catch (err) {
+                    alert('Invalid JSON file format.');
+                }
+            };
+            reader.readAsText(file);
+        }
+    </script>
+</body>
+</html>
